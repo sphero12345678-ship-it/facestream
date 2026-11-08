@@ -1,0 +1,24 @@
+name: Build IPA
+on: [push, workflow_dispatch]
+jobs:
+  build:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: brew install xcodegen
+      - run: xcodegen generate
+      - name: Compilar
+        run: |
+          xcodebuild -project FaceStream.xcodeproj -scheme FaceStream \
+            -sdk iphoneos -configuration Release -derivedDataPath build \
+            -destination 'generic/platform=iOS' \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY=""
+      - name: Empaquetar IPA
+        run: |
+          mkdir Payload
+          cp -r build/Build/Products/Release-iphoneos/FaceStream.app Payload/
+          zip -r FaceStream.ipa Payload
+      - uses: actions/upload-artifact@v4
+        with:
+          name: FaceStream-ipa
+          path: FaceStream.ipa

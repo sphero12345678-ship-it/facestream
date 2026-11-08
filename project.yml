@@ -1,0 +1,21 @@
+name: FaceStream
+options:
+  deploymentTarget:
+    iOS: "15.0"
+targets:
+  FaceStream:
+    type: application
+    platform: iOS
+    sources: [FaceStream]
+    info:
+      path: FaceStream/Info.plist
+      properties:
+        CFBundleDisplayName: FaceStream
+        NSCameraUsageDescription: Necesaria para el tracking facial
+        NSLocalNetworkUsageDescription: Para enviar el stream por la red local
+        UILaunchScreen: {}
+        UIRequiredDeviceCapabilities: [arkit]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.facestream.app
+        SWIFT_VERSION: "5.0"
