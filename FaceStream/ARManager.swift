@@ -6,6 +6,7 @@ final class ARManager: NSObject, ObservableObject, ARSessionDelegate {
     let session = ARSession()
     let server = WSServer()
     private let ci = CIContext()
+    private lazy var vision = VisionProcessor(server: server)
     private var lastVideo = Date.distantPast
     @Published var ip = "..."
     @Published var status = ""
@@ -23,6 +24,7 @@ final class ARManager: NSObject, ObservableObject, ARSessionDelegate {
 
     func session(_ session: ARSession, didUpdate frame: ARFrame) {
         var dict: [String: Any] = ["t": frame.timestamp]
+        vision.process(frame.capturedImage)
         if let face = frame.anchors.compactMap({ $0 as? ARFaceAnchor }).first {
             var bs: [String: Float] = [:]
             for (k, v) in face.blendShapes { bs[k.rawValue] = v.floatValue }

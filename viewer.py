@@ -1,16 +1,29 @@
 import asyncio, json, sys, cv2, numpy as np, websockets
 
-async def main(ip):
+ip = sys.argv[1] if len(sys.argv) > 1 else input("IP del iPhone: ").strip()
+
+async def main():
+    last = {"hands": [], "body": {}}
     async with websockets.connect(f"ws://{ip}:8080", max_size=None) as ws:
         async for msg in ws:
             if isinstance(msg, bytes):
                 img = cv2.imdecode(np.frombuffer(msg, np.uint8), cv2.IMREAD_COLOR)
+                if img is None:
+                    continue
+                h, w = img.shape[:2]
+                for hand in last["hands"]:
+                    for x, y, c in hand["points"].values():
+                        cv2.circle(img, (int(x * w), int((1 - y) * h)), 4, (0, 255, 0), -1)
+                for x, y, c in last["body"].values():
+                    cv2.circle(img, (int(x * w), int((1 - y) * h)), 5, (0, 165, 255), -1)
                 cv2.imshow("iPhone", img)
                 if cv2.waitKey(1) == 27:
                     break
             else:
                 d = json.loads(msg)
-                if "blendshapes" in d:
+                if "vision" in d:
+                    last = d["vision"]
+                elif "blendshapes" in d:
                     print("jawOpen: %.2f" % d["blendshapes"].get("jawOpen", 0), end="\r")
 
-asyncio.run(main(sys.argv[1]))
+asyncio.run(main())
