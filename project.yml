@@ -15,6 +15,7 @@ targets:
         NSLocalNetworkUsageDescription: Para enviar el stream por la red local
         UILaunchScreen: {}
         UIRequiredDeviceCapabilities: [arkit]
+        UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.facestream.app

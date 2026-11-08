@@ -5,6 +5,7 @@ final class WSServer {
     private var listener: NWListener?
     private var clients: [NWConnection] = []
     private let queue = DispatchQueue(label: "ws.server")
+    var onCount: ((Int) -> Void)?
 
     func start(port: UInt16 = 8080) {
         let params = NWParameters.tcp
@@ -20,7 +21,10 @@ final class WSServer {
                 }
             }
             c.start(queue: self.queue)
-            self.queue.async { self.clients.append(c) }
+            self.queue.async {
+                self.clients.append(c)
+                self.onCount?(self.clients.count)
+            }
             self.receive(c)
         }
         listener?.start(queue: queue)
@@ -34,7 +38,11 @@ final class WSServer {
     }
 
     private func remove(_ c: NWConnection) {
-        queue.async { self.clients.removeAll { $0 === c }; c.cancel() }
+        queue.async {
+            self.clients.removeAll { $0 === c }
+            c.cancel()
+            self.onCount?(self.clients.count)
+        }
     }
 
     func broadcast(_ data: Data, text: Bool) {
