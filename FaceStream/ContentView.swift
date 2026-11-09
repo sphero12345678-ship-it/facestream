@@ -230,19 +230,11 @@ struct ContentView: View {
     }
 
     private var depthControls: some View {
-        VStack(spacing: 2) {
-            HStack {
-                Text("Cerca \(Int(m.nearCm)) cm")
-                    .font(.caption2).foregroundColor(.white)
-                    .frame(width: 90, alignment: .leading)
-                Slider(value: $m.nearCm, in: 10...150, step: 1)
-            }
-            HStack {
-                Text("Lejos \(Int(m.farCm)) cm")
-                    .font(.caption2).foregroundColor(.white)
-                    .frame(width: 90, alignment: .leading)
-                Slider(value: $m.farCm, in: 30...400, step: 5)
-            }
+        HStack {
+            Text("Rango \(Int(m.farCm)) cm")
+                .font(.caption2).foregroundColor(.white)
+                .frame(width: 90, alignment: .leading)
+            Slider(value: $m.farCm, in: 20...400, step: 5)
         }
         .tint(.cyan)
     }

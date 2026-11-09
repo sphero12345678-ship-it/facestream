@@ -70,7 +70,7 @@ final class ARManager: NSObject, ObservableObject, ARSessionDelegate {
     @Published var shareItem: ShareItem?
 
     @Published var mode: ViewMode = .video { didSet { modeChanged(from: oldValue) } }
-    @Published var nearCm: Double = 15
+    @Published var nearCm: Double = 10
     @Published var farCm: Double = 100
     @Published var colorMap = true
     @Published var showFace = true
