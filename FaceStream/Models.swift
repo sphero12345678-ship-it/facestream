@@ -15,7 +15,11 @@ struct Overlay {
 }
 
 enum ViewMode: String, CaseIterable, Identifiable {
-    case video = "Video"
-    case depth = "Profundidad"
+    case video = "Cam"
+    case depth = "Prof"
+    case blend = "Mezcla"
+    case split = "Split"
+    case cloud = "3D"
+    case scan = "Scan"
     var id: String { rawValue }
 }

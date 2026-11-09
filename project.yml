@@ -13,6 +13,9 @@ targets:
         CFBundleDisplayName: FaceStream
         NSCameraUsageDescription: Necesaria para el tracking facial
         NSLocalNetworkUsageDescription: Para enviar el stream por la red local
+        NSPhotoLibraryAddUsageDescription: Para guardar capturas de pantalla
+        UIFileSharingEnabled: true
+        LSSupportsOpeningDocumentsInPlace: true
         UILaunchScreen: {}
         UIRequiredDeviceCapabilities: [arkit]
         UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
