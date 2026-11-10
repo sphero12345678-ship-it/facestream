@@ -10,7 +10,12 @@ final class ARManager: NSObject, ObservableObject, ARSessionDelegate {
     let server = WSServer()
     private let ci = CIContext()
     let work = DispatchQueue(label: "ar.work")
-    private lazy var vision = VisionProcessor(server: server)
+    lazy var vision = VisionProcessor(server: server)
+    lazy var visionBack = VisionProcessor(server: server)
+    let capture = CaptureManager()
+    let capCI = CIContext()
+    var lastCapFront = Date.distantPast
+    var lastCapBack = Date.distantPast
     private let poseNode = SCNNode()
     private var started = false
     private var lastVideo = Date.distantPast
@@ -53,6 +58,9 @@ final class ARManager: NSObject, ObservableObject, ARSessionDelegate {
     @Published var cloud: [SIMD3<Float>] = []
     @Published var cloudPivot: Float = 0.5
     @Published var toast = ""
+    @Published var previewBack: UIImage?
+    @Published var overlayBack = Overlay()
+    @Published var source: SourceMode = .faceID { didSet { sourceChanged(from: oldValue) } }
     let store = ScanStore()
     let files = FileServer()
     var lastScanDepthTs: TimeInterval = 0

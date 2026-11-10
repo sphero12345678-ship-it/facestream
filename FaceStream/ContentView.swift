@@ -71,7 +71,16 @@ struct ContentView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
+    @ViewBuilder
     private var stage: some View {
+        if m.source == .faceID {
+            faceStage
+        } else {
+            SourceStage(m: m)
+        }
+    }
+
+    private var faceStage: some View {
         ZStack(alignment: .bottom) {
             switch m.mode {
             case .video:
@@ -240,6 +249,17 @@ struct ContentView: View {
     }
 
     private var controls: some View {
+        VStack(spacing: 0) {
+            SourcePicker(m: m)
+            if m.source == .faceID {
+                faceControls
+            } else {
+                SourceControls(m: m)
+            }
+        }
+    }
+
+    private var faceControls: some View {
         VStack(spacing: 10) {
             if m.showBlends && m.mode != .scan {
                 VStack(spacing: 3) {

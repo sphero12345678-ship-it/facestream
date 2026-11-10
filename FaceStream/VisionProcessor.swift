@@ -1,4 +1,5 @@
 import Vision
+import ImageIO
 import CoreVideo
 import CoreGraphics
 import Foundation
@@ -11,6 +12,8 @@ struct VisionResult {
 }
 
 final class VisionProcessor {
+    var orientation: CGImagePropertyOrientation = .right
+    var tag = "front"
     var detectHands = true
     var detectBody = true
     var broadcastEnabled = true
@@ -73,7 +76,7 @@ final class VisionProcessor {
             if doHands { reqs.append(hands) }
             if doBody { reqs.append(body) }
 
-            let handler = VNImageRequestHandler(cvPixelBuffer: pb, orientation: .right, options: [:])
+            let handler = VNImageRequestHandler(cvPixelBuffer: pb, orientation: orientation, options: [:])
             try? handler.perform(reqs)
 
             var res = VisionResult()
@@ -111,7 +114,7 @@ final class VisionProcessor {
             self.onResult?(res)
 
             if self.broadcastEnabled {
-                let out: [String: Any] = ["hands": handsJSON, "body": bodyJSON]
+                let out: [String: Any] = ["hands": handsJSON, "body": bodyJSON, "src": self.tag]
                 if let data = try? JSONSerialization.data(withJSONObject: ["vision": out]) {
                     self.server.broadcast(data, text: true)
                 }
