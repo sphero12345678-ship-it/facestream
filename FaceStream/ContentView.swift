@@ -69,10 +69,14 @@ struct ContentView: View {
     var body: some View {
         ZStack {
             Color.black.ignoresSafeArea()
-            VStack(spacing: 8) {
-                topBar
-                stageCard
-                bottomPanel
+            if m.source == .faceID && m.mode == .scan {
+                ScanScreen(m: m)
+            } else {
+                VStack(spacing: 8) {
+                    topBar
+                    stageCard
+                    bottomPanel
+                }
             }
             if !m.toast.isEmpty {
                 VStack {

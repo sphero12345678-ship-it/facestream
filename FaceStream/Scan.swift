@@ -121,6 +121,14 @@ extension ARManager {
         if source == .faceID && (mode == .scan) != (old == .scan) {
             runSession()
         }
+        if mode == .scan {
+            volume.onPress = { [weak self] in
+                DispatchQueue.main.async { self?.scanning.toggle() }
+            }
+            volume.start()
+        } else {
+            volume.stop()
+        }
         if mode != .scan { scanning = false }
     }
 
@@ -261,7 +269,7 @@ extension ARManager {
         let fw = Float(w)
         let fh = Float(h)
         let colW = Float(ch) * 4 / 3
-        let step = 3
+        let step = scanVoxelMM <= 2 ? 2 : (scanVoxelMM <= 4 ? 3 : 4)
 
         for y in stride(from: 0, to: h - 1, by: step) {
             let row = base.advanced(by: y * rowBytes).assumingMemoryBound(to: Float32.self)

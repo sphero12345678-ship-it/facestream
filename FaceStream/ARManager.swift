@@ -24,6 +24,7 @@ final class ARManager: NSObject, ObservableObject, ARSessionDelegate {
 
     let store = ScanStore()
     let files = FileServer()
+    let volume = VolumeButtons()
     var lastScanDepthTs: TimeInterval = 0
     var lastScanPublish = Date.distantPast
     var lastHaptic = Date.distantPast
@@ -71,7 +72,18 @@ final class ARManager: NSObject, ObservableObject, ARSessionDelegate {
     @Published var scanRadius: Float = 0.3
     @Published var scanShowModel = false
     @Published var scanFlipX = false
-    @Published var scanVoxelMM = 4 { didSet { store.voxel = Float(scanVoxelMM) / 1000 } }
+    @Published var nightVision = false
+    @Published var scanVoxelMM = 4 {
+        didSet {
+            store.voxel = Float(scanVoxelMM) / 1000
+            switch scanVoxelMM {
+            case 1: farCm = 35
+            case 2: farCm = 50
+            case 4: farCm = 80
+            default: farCm = 120
+            }
+        }
+    }
     @Published var shareItem: ShareItem?
 
     @Published var source: SourceMode = .faceID { didSet { sourceChanged(from: oldValue) } }
@@ -322,9 +334,11 @@ final class ARManager: NSObject, ObservableObject, ARSessionDelegate {
             confStride = CVPixelBufferGetBytesPerRow(c)
         }
 
-        let near = Float(nearCm / 100)
-        let far = Float(max(farCm, nearCm + 10) / 100)
-        let useColor = colorMap
+        let night = (mode == .scan && nightVision)
+        let tint = (mode == .scan && !nightVision)
+        let near: Float = night ? 0.1 : Float(nearCm / 100)
+        let far: Float = night ? 4.0 : Float(max(farCm, nearCm + 10) / 100)
+        let useColor = colorMap && !night && !tint
         let wantCloud = mode == .cloud
 
         var fx = Float(w) * 0.87
@@ -356,7 +370,11 @@ final class ARManager: NSObject, ObservableObject, ARSessionDelegate {
                 if let cr = crow, cr[x] < 1 { continue }
                 let n = (z - near) / (far - near)
                 let o = (y * w + x) * 4
-                if useColor {
+                if tint {
+                    rgba[o] = 30
+                    rgba[o + 1] = 255
+                    rgba[o + 2] = 150
+                } else if useColor {
                     let li = Int(n * 255) * 3
                     rgba[o] = lut[li]
                     rgba[o + 1] = lut[li + 1]
