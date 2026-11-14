@@ -118,8 +118,8 @@ final class FileServer {
 
 extension ARManager {
     func modeChanged(from old: ViewMode) {
-        if (mode == .scan) != (old == .scan) {
-            configureSession(world: mode == .scan)
+        if source == .faceID && (mode == .scan) != (old == .scan) {
+            runSession()
         }
         if mode != .scan { scanning = false }
     }

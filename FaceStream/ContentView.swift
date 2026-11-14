@@ -1,59 +1,245 @@
 import SwiftUI
 
+struct Chips<T: Hashable>: View {
+    let items: [T]
+    let label: (T) -> String
+    @Binding var selection: T
+
+    var body: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                ForEach(items, id: \.self) { item in
+                    Button { selection = item } label: {
+                        Text(label(item))
+                            .font(.system(size: 13, weight: .semibold))
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 8)
+                            .background(selection == item ? Color.cyan : Color.white.opacity(0.12))
+                            .foregroundColor(selection == item ? Color.black : Color.white)
+                            .clipShape(Capsule())
+                    }
+                }
+            }
+            .padding(.horizontal, 12)
+        }
+    }
+}
+
+struct ToggleChip: View {
+    let title: String
+    let icon: String
+    @Binding var isOn: Bool
+
+    var body: some View {
+        Button { isOn.toggle() } label: {
+            HStack(spacing: 5) {
+                Image(systemName: icon).font(.system(size: 12))
+                Text(title).font(.system(size: 12, weight: .medium))
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 7)
+            .background(isOn ? Color.cyan.opacity(0.9) : Color.white.opacity(0.12))
+            .foregroundColor(isOn ? Color.black : Color.white)
+            .clipShape(Capsule())
+        }
+    }
+}
+
+struct GlassButton: View {
+    let icon: String
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: icon)
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundColor(.white)
+                .frame(width: 40, height: 40)
+                .background(.ultraThinMaterial)
+                .clipShape(Circle())
+        }
+    }
+}
+
 struct ContentView: View {
     @ObservedObject var m: ARManager
+    @State private var panelOpen = true
     @State private var big: Int? = nil
 
     var body: some View {
         ZStack {
             Color.black.ignoresSafeArea()
-            VStack(spacing: 0) {
-                header
-                stage
-                controls
+            VStack(spacing: 8) {
+                topBar
+                stageCard
+                bottomPanel
+            }
+            if !m.toast.isEmpty {
+                VStack {
+                    Text(m.toast)
+                        .font(.footnote)
+                        .padding(10)
+                        .background(Color.cyan.opacity(0.95))
+                        .foregroundColor(.black)
+                        .clipShape(Capsule())
+                        .padding(.top, 60)
+                    Spacer()
+                }
             }
         }
         .sheet(item: $m.shareItem) { item in
             ActivityView(url: item.url)
         }
-        .overlay(alignment: .top) {
-            if !m.toast.isEmpty {
-                Text(m.toast)
-                    .font(.footnote)
-                    .padding(10)
-                    .background(Color.cyan.opacity(0.9))
-                    .foregroundColor(.black)
-                    .cornerRadius(10)
-                    .padding(.top, 60)
+    }
+
+    // MARK: Barra superior
+
+    private var topBar: some View {
+        HStack(spacing: 8) {
+            HStack(spacing: 6) {
+                Circle()
+                    .fill(m.clients > 0 ? Color.green : Color.orange)
+                    .frame(width: 8, height: 8)
+                Text("ws://\(m.ip):8080")
+                    .font(.system(size: 12, design: .monospaced))
+                    .foregroundColor(.white)
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(Color.white.opacity(0.1))
+            .clipShape(Capsule())
+            Spacer()
+            if m.source == .faceID || m.source == .both {
+                Image(systemName: "faceid")
+                    .foregroundColor(m.faceTracked ? Color.green : Color.red)
+            }
+            Text("\(m.fps) fps")
+                .font(.system(size: 12, design: .monospaced))
+                .foregroundColor(.gray)
+            HStack(spacing: 3) {
+                Image(systemName: "person.2.fill")
+                Text("\(m.clients)")
+            }
+            .font(.caption)
+            .foregroundColor(.gray)
+        }
+        .padding(.horizontal, 12)
+        .padding(.top, 4)
+    }
+
+    // MARK: Escenario
+
+    private var stageCard: some View {
+        ZStack {
+            Color.white.opacity(0.04)
+            stageContent
+            hud
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .padding(.horizontal, 8)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    @ViewBuilder
+    private var stageContent: some View {
+        if m.hasDepth {
+            depthStage
+        } else {
+            camPane(depth: false)
+        }
+    }
+
+    @ViewBuilder
+    private var depthStage: some View {
+        switch m.mode {
+        case .video:
+            camPane(depth: false)
+        case .depth:
+            depthPane
+        case .blend:
+            camPane(depth: true)
+        case .split:
+            splitPane
+        case .cloud:
+            CloudView(m: m)
+        case .scan:
+            if m.scanShowModel {
+                ModelView(m: m)
+            } else {
+                camPane(depth: true)
             }
         }
     }
 
-    private var header: some View {
-        HStack {
-            VStack(alignment: .leading, spacing: 2) {
-                Text("FaceStream").font(.headline).foregroundColor(.white)
-                Text("ws://\(m.ip):8080")
-                    .font(.system(size: 12, design: .monospaced))
-                    .foregroundColor(.gray)
-            }
-            Spacer()
-            VStack(alignment: .trailing, spacing: 2) {
-                HStack(spacing: 6) {
-                    Circle()
-                        .fill(m.faceTracked ? Color.green : Color.red)
-                        .frame(width: 8, height: 8)
-                    Text(m.faceTracked ? "Cara" : "Sin cara")
-                        .font(.caption)
-                        .foregroundColor(.white)
+    private var hud: some View {
+        ZStack {
+            VStack {
+                HStack {
+                    if m.showBlends && m.showBlendCard && !m.blends.isEmpty {
+                        blendCard
+                    }
+                    Spacer()
                 }
-                Text("\(m.fps) fps · \(m.clients) cliente(s)")
-                    .font(.caption)
-                    .foregroundColor(.gray)
+                Spacer()
+            }
+            .padding(10)
+
+            HStack {
+                Spacer()
+                VStack(spacing: 10) {
+                    GlassButton(icon: "camera.fill") { m.snapshot() }
+                    GlassButton(icon: "photo.on.rectangle") { m.openGallery() }
+                }
+            }
+            .padding(10)
+
+            VStack {
+                Spacer()
+                VStack(spacing: 4) {
+                    if m.hasDepth {
+                        if m.mode == .scan {
+                            chip((m.scanning ? "● REC " : "❚❚ ") + "\(m.scanCount) pts")
+                        }
+                        if m.mode != .video, let c = m.centerCm {
+                            chip("Centro: \(c) cm")
+                        }
+                    }
+                    if !m.headPose.isEmpty {
+                        chip(m.headPose)
+                    }
+                }
+                .allowsHitTesting(false)
+            }
+            .padding(.bottom, 8)
+        }
+    }
+
+    private var blendCard: some View {
+        VStack(spacing: 3) {
+            ForEach(m.blends) { b in
+                HStack(spacing: 6) {
+                    Text(b.id)
+                        .font(.system(size: 9, design: .monospaced))
+                        .foregroundColor(.white)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.7)
+                        .frame(width: 86, alignment: .leading)
+                    GeometryReader { g in
+                        ZStack(alignment: .leading) {
+                            Capsule().fill(Color.white.opacity(0.15))
+                            Capsule().fill(Color.cyan)
+                                .frame(width: g.size.width * CGFloat(min(max(b.value, 0), 1)))
+                        }
+                    }
+                    .frame(height: 4)
+                }
             }
         }
-        .padding(.horizontal)
-        .padding(.vertical, 8)
+        .padding(8)
+        .frame(width: 170)
+        .background(.ultraThinMaterial)
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .allowsHitTesting(false)
     }
 
     private func chip(_ s: String) -> some View {
@@ -66,53 +252,13 @@ struct ContentView: View {
     }
 
     private var placeholder: some View {
-        Text(m.status.isEmpty ? "Esperando cámara…" : m.status)
-            .foregroundColor(.gray)
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-
-    @ViewBuilder
-    private var stage: some View {
-        if m.source == .faceID {
-            faceStage
-        } else {
-            SourceStage(m: m)
-        }
-    }
-
-    private var faceStage: some View {
-        ZStack(alignment: .bottom) {
-            switch m.mode {
-            case .video:
-                camPane(depth: false)
-            case .depth:
-                depthPane
-            case .blend:
-                camPane(depth: true)
-            case .split:
-                splitPane
-            case .cloud:
-                CloudView(m: m)
-            case .scan:
-                if m.scanShowModel {
-                    ModelView(m: m)
-                } else {
-                    camPane(depth: true)
-                }
-            }
-            VStack(spacing: 4) {
-                if m.mode == .scan {
-                    chip((m.scanning ? "● REC " : "❚❚ ") + "\(m.scanCount) pts")
-                }
-                if m.mode != .video, let c = m.centerCm {
-                    chip("Centro: \(c) cm")
-                }
-                if !m.headPose.isEmpty {
-                    chip(m.headPose)
-                }
-            }
-            .padding(.bottom, 6)
-            .allowsHitTesting(false)
+        VStack(spacing: 8) {
+            ProgressView().tint(.cyan)
+            Text(m.status.isEmpty ? "Iniciando cámara…" : m.status)
+                .font(.footnote)
+                .foregroundColor(.gray)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 20)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
@@ -238,85 +384,85 @@ struct ContentView: View {
         return path
     }
 
-    private var depthControls: some View {
-        HStack {
-            Text("Rango \(Int(m.farCm)) cm")
-                .font(.caption2).foregroundColor(.white)
-                .frame(width: 90, alignment: .leading)
-            Slider(value: $m.farCm, in: 20...400, step: 5)
-        }
-        .tint(.cyan)
-    }
+    // MARK: Panel inferior
 
-    private var controls: some View {
-        VStack(spacing: 0) {
-            SourcePicker(m: m)
-            if m.source == .faceID {
-                faceControls
-            } else {
-                SourceControls(m: m)
-            }
+    private func modeTitle(_ v: ViewMode) -> String {
+        switch v {
+        case .video: return "Cámara"
+        case .depth: return "Profundidad"
+        case .blend: return "Mezcla"
+        case .split: return "Dividido"
+        case .cloud: return "Nube 3D"
+        case .scan: return "Escáner"
         }
     }
 
-    private var faceControls: some View {
+    private var bottomPanel: some View {
         VStack(spacing: 10) {
-            if m.showBlends && m.mode != .scan {
-                VStack(spacing: 3) {
-                    ForEach(m.blends) { b in
-                        HStack(spacing: 6) {
-                            Text(b.id)
-                                .font(.system(size: 10, design: .monospaced))
-                                .foregroundColor(.white)
-                                .frame(width: 130, alignment: .leading)
-                            GeometryReader { g in
-                                ZStack(alignment: .leading) {
-                                    Capsule().fill(Color.white.opacity(0.15))
-                                    Capsule().fill(Color.cyan)
-                                        .frame(width: g.size.width * CGFloat(min(max(b.value, 0), 1)))
-                                }
-                            }
-                            .frame(height: 6)
-                            Text(String(format: "%.2f", b.value))
-                                .font(.system(size: 10, design: .monospaced))
-                                .foregroundColor(.gray)
-                                .frame(width: 32)
-                        }
+            Capsule()
+                .fill(Color.white.opacity(0.3))
+                .frame(width: 36, height: 4)
+                .padding(.top, 8)
+                .contentShape(Rectangle())
+                .onTapGesture { withAnimation { panelOpen.toggle() } }
+            Chips(items: SourceMode.allCases, label: { m.sourceTitle($0) }, selection: $m.source)
+            Text(m.sourceHint)
+                .font(.system(size: 11))
+                .foregroundColor(.gray)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 16)
+            if panelOpen {
+                if m.hasDepth {
+                    Chips(items: m.availableModes, label: modeTitle, selection: $m.mode)
+                    if m.mode != .video {
+                        rangeSlider
+                    }
+                    if m.mode == .scan {
+                        ScanControls(m: m)
+                            .padding(.horizontal, 12)
                     }
                 }
-                .frame(minHeight: 110, alignment: .top)
-            }
-            if m.mode != .video {
-                depthControls
-            }
-            if m.mode == .scan {
-                ScanControls(m: m)
-            }
-            Picker("Vista", selection: $m.mode) {
-                ForEach(ViewMode.allCases) { v in
-                    Text(v.rawValue).tag(v)
-                }
-            }
-            .pickerStyle(.segmented)
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack {
-                    Button { m.snapshot() } label: { Image(systemName: "camera.fill") }
-                        .buttonStyle(.bordered)
-                    Button { m.openGallery() } label: { Image(systemName: "photo.on.rectangle") }
-                        .buttonStyle(.bordered)
-                    Toggle("Color", isOn: $m.colorMap)
-                    Toggle("Malla", isOn: $m.showFace)
-                    Toggle("Manos", isOn: $m.showHands)
-                    Toggle("Cuerpo", isOn: $m.showBody)
-                    Toggle("Blendshapes", isOn: $m.showBlends)
-                    Toggle("Espejo", isOn: $m.mirror)
-                    Toggle("Stream", isOn: $m.streaming)
-                }
-                .toggleStyle(.button)
-                .tint(.cyan)
+                layerChips
             }
         }
-        .padding()
+        .padding(.bottom, 8)
+        .background(.ultraThinMaterial)
+        .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .padding(.horizontal, 8)
+    }
+
+    private var rangeSlider: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "ruler").foregroundColor(.cyan)
+            Slider(value: $m.farCm, in: 20...500, step: 5)
+                .tint(.cyan)
+            Text("\(Int(m.farCm)) cm")
+                .font(.system(size: 12, design: .monospaced))
+                .foregroundColor(.white)
+                .frame(width: 60, alignment: .trailing)
+        }
+        .padding(.horizontal, 16)
+    }
+
+    private var layerChips: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                if m.source == .faceID {
+                    ToggleChip(title: "Malla", icon: "faceid", isOn: $m.showFace)
+                }
+                if m.source == .faceID || m.source == .both {
+                    ToggleChip(title: "Blendshapes", icon: "waveform", isOn: $m.showBlends)
+                }
+                ToggleChip(title: "Manos", icon: "hand.raised.fill", isOn: $m.showHands)
+                ToggleChip(title: "Cuerpo", icon: "person.fill", isOn: $m.showBody)
+                if m.hasDepth && m.mode != .video {
+                    ToggleChip(title: "Color", icon: "paintpalette.fill", isOn: $m.colorMap)
+                }
+                ToggleChip(title: "Espejo", icon: "arrow.left.arrow.right", isOn: $m.mirror)
+                ToggleChip(title: "Stream", icon: "dot.radiowaves.left.and.right", isOn: $m.streaming)
+            }
+            .padding(.horizontal, 12)
+        }
     }
 }
 

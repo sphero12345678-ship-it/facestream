@@ -8,21 +8,25 @@ import simd
 final class ARManager: NSObject, ObservableObject, ARSessionDelegate {
     let session = ARSession()
     let server = WSServer()
-    private let ci = CIContext()
+    let ci = CIContext()
     let work = DispatchQueue(label: "ar.work")
     lazy var vision = VisionProcessor(server: server)
-    lazy var visionBack = VisionProcessor(server: server)
     let capture = CaptureManager()
-    let capCI = CIContext()
-    var lastCapFront = Date.distantPast
-    var lastCapBack = Date.distantPast
     private let poseNode = SCNNode()
     private var started = false
-    private var lastVideo = Date.distantPast
+    var lastVideo = Date.distantPast
     private var lastUI = Date.distantPast
     private var lastDepth = Date.distantPast
     private var frames = 0
     private var fpsStart = Date()
+    var reverting = false
+    var switchGen = 0
+
+    let store = ScanStore()
+    let files = FileServer()
+    var lastScanDepthTs: TimeInterval = 0
+    var lastScanPublish = Date.distantPast
+    var lastHaptic = Date.distantPast
 
     static let lut: [UInt8] = (0..<256).flatMap { i in ARManager.hsv(Float(i) / 255 * 0.7) }
 
@@ -58,14 +62,7 @@ final class ARManager: NSObject, ObservableObject, ARSessionDelegate {
     @Published var cloud: [SIMD3<Float>] = []
     @Published var cloudPivot: Float = 0.5
     @Published var toast = ""
-    @Published var previewBack: UIImage?
-    @Published var overlayBack = Overlay()
-    @Published var source: SourceMode = .faceID { didSet { sourceChanged(from: oldValue) } }
-    let store = ScanStore()
-    let files = FileServer()
-    var lastScanDepthTs: TimeInterval = 0
-    var lastScanPublish = Date.distantPast
-    var lastHaptic = Date.distantPast
+
     @Published var scanning = false
     @Published var scanCount = 0
     @Published var scanPreview: [SIMD3<Float>] = []
@@ -77,6 +74,7 @@ final class ARManager: NSObject, ObservableObject, ARSessionDelegate {
     @Published var scanVoxelMM = 4 { didSet { store.voxel = Float(scanVoxelMM) / 1000 } }
     @Published var shareItem: ShareItem?
 
+    @Published var source: SourceMode = .faceID { didSet { sourceChanged(from: oldValue) } }
     @Published var mode: ViewMode = .video { didSet { modeChanged(from: oldValue) } }
     @Published var nearCm: Double = 10
     @Published var farCm: Double = 100
@@ -87,6 +85,16 @@ final class ARManager: NSObject, ObservableObject, ARSessionDelegate {
     @Published var showHands = true { didSet { vision.detectHands = showHands } }
     @Published var showBody = true { didSet { vision.detectBody = showBody } }
     @Published var streaming = true { didSet { vision.broadcastEnabled = streaming } }
+
+    func tickFPS(_ now: Date) {
+        frames += 1
+        if now.timeIntervalSince(fpsStart) >= 1 {
+            let f = frames
+            frames = 0
+            fpsStart = now
+            DispatchQueue.main.async { self.fps = f }
+        }
+    }
 
     func start() {
         if started { return }
@@ -113,9 +121,9 @@ final class ARManager: NSObject, ObservableObject, ARSessionDelegate {
 
         session.delegate = self
         session.delegateQueue = work
-        session.run(ARFaceTrackingConfiguration(), options: [.resetTracking, .removeExistingAnchors])
         ip = Self.localIP() ?? "sin WiFi"
         status = "Iniciando cámara…"
+        runSession()
     }
 
     func snapshot() {
@@ -139,28 +147,34 @@ final class ARManager: NSObject, ObservableObject, ARSessionDelegate {
         }
     }
 
+    func session(_ session: ARSession, didFailWithError error: Error) {
+        let msg = error.localizedDescription
+        DispatchQueue.main.async { self.status = "ARKit: \(msg)" }
+    }
+
     func session(_ session: ARSession, didUpdate frame: ARFrame) {
+        let src = source
+        if src == .front || src == .back { return }
         let now = Date()
-        frames += 1
-        if now.timeIntervalSince(fpsStart) >= 1 {
-            let f = frames
-            frames = 0
-            fpsStart = now
-            DispatchQueue.main.async { self.fps = f }
-        }
+        tickFPS(now)
 
         let pb = frame.capturedImage
         if scanning { scanTick(frame) } else { vision.process(pb) }
 
         let face = frame.anchors.compactMap { $0 as? ARFaceAnchor }.first
+        let tag = (src == .faceID) ? "front" : "back"
 
         if streaming {
-            var dict: [String: Any] = ["t": frame.timestamp]
+            var dict: [String: Any] = ["t": frame.timestamp, "src": tag]
             if let face = face {
                 var bs: [String: Float] = [:]
                 for (k, v) in face.blendShapes { bs[k.rawValue] = v.floatValue }
                 dict["blendshapes"] = bs
                 dict["transform"] = (0..<4).flatMap { c in (0..<4).map { r in face.transform[c][r] } }
+                if src == .both {
+                    let cam = frame.camera.transform
+                    dict["camera"] = (0..<4).flatMap { c in (0..<4).map { r in cam[c][r] } }
+                }
             }
             if let d = try? JSONSerialization.data(withJSONObject: dict) {
                 server.broadcast(d, text: true)
@@ -175,9 +189,17 @@ final class ARManager: NSObject, ObservableObject, ARSessionDelegate {
 
             if wantVideo {
                 lastVideo = now
+                let sv = min(1, 960 / img.extent.width)
+                let vimg = sv < 1 ? img.transformed(by: CGAffineTransform(scaleX: sv, y: sv)) : img
                 let opts = [CIImageRepresentationOption(rawValue: kCGImageDestinationLossyCompressionQuality as String): 0.5]
-                if let jpg = ci.jpegRepresentation(of: img, colorSpace: CGColorSpaceCreateDeviceRGB(), options: opts) {
-                    server.broadcast(jpg, text: false)
+                if let jpg = ci.jpegRepresentation(of: vimg, colorSpace: CGColorSpaceCreateDeviceRGB(), options: opts) {
+                    if src == .faceID {
+                        server.broadcast(jpg, text: false)
+                    } else {
+                        var d = Data("BACK".utf8)
+                        d.append(jpg)
+                        server.broadcast(d, text: false)
+                    }
                 }
             }
 
@@ -187,10 +209,14 @@ final class ARManager: NSObject, ObservableObject, ARSessionDelegate {
             }
         }
 
-        if mode != .video, now.timeIntervalSince(lastDepth) > 1.0 / 12.0,
-           let dd = frame.capturedDepthData {
-            lastDepth = now
-            processDepth(dd)
+        if mode != .video, now.timeIntervalSince(lastDepth) > 1.0 / 12.0 {
+            if src == .faceID, let dd = frame.capturedDepthData {
+                lastDepth = now
+                processFaceDepth(dd)
+            } else if src == .lidar, let sd = frame.sceneDepth {
+                lastDepth = now
+                processLidar(frame, sd)
+            }
         }
     }
 
@@ -202,13 +228,15 @@ final class ARManager: NSObject, ObservableObject, ARSessionDelegate {
             previewImg = UIImage(cgImage: cg)
         }
 
+        let src = source
+        let hasFace = (src == .faceID || src == .both)
         var pts: [CGPoint] = []
         var top: [Blend] = []
         var pose = ""
-        let tracked = face?.isTracked ?? false
+        let tracked = hasFace ? (face?.isTracked ?? false) : false
 
-        if let face = face, face.isTracked {
-            if showFace {
+        if hasFace, let face = face, face.isTracked {
+            if showFace && src == .faceID {
                 let size = CGSize(width: CGFloat(CVPixelBufferGetHeight(pb)),
                                   height: CGFloat(CVPixelBufferGetWidth(pb)))
                 let verts = face.geometry.vertices
@@ -227,10 +255,12 @@ final class ARManager: NSObject, ObservableObject, ARSessionDelegate {
                 let all = face.blendShapes.map { Blend(id: $0.key.rawValue, value: $0.value.floatValue) }
                 top = Array(all.sorted { $0.value > $1.value }.prefix(8))
             }
-            poseNode.simdTransform = frame.camera.transform.inverse * face.transform
-            let e = poseNode.simdEulerAngles
-            let k: Float = 180 / Float.pi
-            pose = String(format: "Yaw %.0f°  Pitch %.0f°  Roll %.0f°", e.y * k, e.x * k, e.z * k)
+            if src == .faceID {
+                poseNode.simdTransform = frame.camera.transform.inverse * face.transform
+                let e = poseNode.simdEulerAngles
+                let k: Float = 180 / Float.pi
+                pose = String(format: "Yaw %.0f°  Pitch %.0f°  Roll %.0f°", e.y * k, e.x * k, e.z * k)
+            }
         }
 
         DispatchQueue.main.async {
@@ -242,18 +272,55 @@ final class ARManager: NSObject, ObservableObject, ARSessionDelegate {
         }
     }
 
-    private func processDepth(_ data: AVDepthData) {
+    private func processFaceDepth(_ data: AVDepthData) {
         let d = data.depthDataType == kCVPixelFormatType_DepthFloat32
             ? data
             : data.converting(toDepthDataType: kCVPixelFormatType_DepthFloat32)
         let map = d.depthDataMap
+        var intr: (Float, Float, Float, Float)?
+        if mode == .cloud, let cal = d.cameraCalibrationData {
+            let k = cal.intrinsicMatrix
+            let ref = cal.intrinsicMatrixReferenceDimensions
+            if ref.width > 0 && ref.height > 0 {
+                let sx = Float(CVPixelBufferGetWidth(map)) / Float(ref.width)
+                let sy = Float(CVPixelBufferGetHeight(map)) / Float(ref.height)
+                intr = (k[0][0] * sx, k[1][1] * sy, k[2][0] * sx, k[2][1] * sy)
+            }
+        }
+        processDepthMap(map, intr: intr, conf: nil)
+    }
+
+    private func processLidar(_ frame: ARFrame, _ sd: ARDepthData) {
+        let map = sd.depthMap
+        let k = frame.camera.intrinsics
+        let res = frame.camera.imageResolution
+        let sx = Float(CVPixelBufferGetWidth(map)) / Float(res.width)
+        let sy = Float(CVPixelBufferGetHeight(map)) / Float(res.height)
+        let intr: (Float, Float, Float, Float) = (k[0][0] * sx, k[1][1] * sy, k[2][0] * sx, k[2][1] * sy)
+        processDepthMap(map, intr: intr, conf: sd.confidenceMap)
+    }
+
+    private func processDepthMap(_ map: CVPixelBuffer,
+                                 intr: (Float, Float, Float, Float)?,
+                                 conf: CVPixelBuffer?) {
         CVPixelBufferLockBaseAddress(map, .readOnly)
-        defer { CVPixelBufferUnlockBaseAddress(map, .readOnly) }
+        if let c = conf { CVPixelBufferLockBaseAddress(c, .readOnly) }
+        defer {
+            if let c = conf { CVPixelBufferUnlockBaseAddress(c, .readOnly) }
+            CVPixelBufferUnlockBaseAddress(map, .readOnly)
+        }
 
         let w = CVPixelBufferGetWidth(map)
         let h = CVPixelBufferGetHeight(map)
         guard let base = CVPixelBufferGetBaseAddress(map) else { return }
         let stride = CVPixelBufferGetBytesPerRow(map)
+
+        var confBase: UnsafeMutableRawPointer?
+        var confStride = 0
+        if let c = conf {
+            confBase = CVPixelBufferGetBaseAddress(c)
+            confStride = CVPixelBufferGetBytesPerRow(c)
+        }
 
         let near = Float(nearCm / 100)
         let far = Float(max(farCm, nearCm + 10) / 100)
@@ -264,28 +331,29 @@ final class ARManager: NSObject, ObservableObject, ARSessionDelegate {
         var fy = fx
         var cx = Float(w) / 2
         var cy = Float(h) / 2
-        if wantCloud, let cal = d.cameraCalibrationData {
-            let k = cal.intrinsicMatrix
-            let ref = cal.intrinsicMatrixReferenceDimensions
-            let sx = Float(w) / Float(ref.width)
-            let sy = Float(h) / Float(ref.height)
-            fx = k[0][0] * sx
-            fy = k[1][1] * sy
-            cx = k[2][0] * sx
-            cy = k[2][1] * sy
+        if let i = intr {
+            fx = i.0
+            fy = i.1
+            cx = i.2
+            cy = i.3
         }
 
         var rgba = [UInt8](repeating: 0, count: w * h * 4)
         var pts: [SIMD3<Float>] = []
         var sumZ: Float = 0
-        let step = 5
+        let step = max(1, w / 128)
         let lut = ARManager.lut
 
         for y in 0..<h {
             let row = base.advanced(by: y * stride).assumingMemoryBound(to: Float32.self)
+            var crow: UnsafeMutablePointer<UInt8>?
+            if let cb = confBase {
+                crow = cb.advanced(by: y * confStride).assumingMemoryBound(to: UInt8.self)
+            }
             for x in 0..<w {
                 let z = row[x]
                 if !(z.isFinite && z > 0 && z >= near && z <= far) { continue }
+                if let cr = crow, cr[x] < 1 { continue }
                 let n = (z - near) / (far - near)
                 let o = (y * w + x) * 4
                 if useColor {
@@ -310,9 +378,13 @@ final class ARManager: NSObject, ObservableObject, ARSessionDelegate {
         }
 
         var vals: [Float] = []
-        for yy in (h / 2 - 3)...(h / 2 + 3) {
+        let y0 = max(0, h / 2 - 3)
+        let y1 = min(h - 1, h / 2 + 3)
+        let x0 = max(0, w / 2 - 3)
+        let x1 = min(w - 1, w / 2 + 3)
+        for yy in y0...y1 {
             let row = base.advanced(by: yy * stride).assumingMemoryBound(to: Float32.self)
-            for xx in (w / 2 - 3)...(w / 2 + 3) {
+            for xx in x0...x1 {
                 let z = row[xx]
                 if z.isFinite && z > 0 { vals.append(z) }
             }
